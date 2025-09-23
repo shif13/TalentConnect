@@ -17,6 +17,9 @@ const contactRoutes = require("./routes/contactRoutes");
 const registerRoutes = require("./routes/registerRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 
+//review routes
+ const reviewRoutes = require('./routes/reviewRoutes');
+
 // Controllers for table creation
 const { createContactLogsTable } = require("./controllers/contactController");
 const { createTables } = require("./controllers/registerController");
@@ -51,6 +54,9 @@ app.use("/api/contact", contactRoutes);
 app.use("/api", registerRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 
+//review routes
+  app.use('/api/reviews', reviewRoutes);
+  
 // 404 handler
 app.use("*", (req, res) => {
   res.status(404).json({

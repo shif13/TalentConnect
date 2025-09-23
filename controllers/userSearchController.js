@@ -1,5 +1,201 @@
 const { db } = require('../config/db');
 
+// Helper function for hierarchical location matching
+const buildLocationQuery = (searchLocation) => {
+  if (!searchLocation || !searchLocation.trim()) {
+    return { condition: '', params: [] };
+  }
+
+  const location = searchLocation.trim().toLowerCase();
+  
+  // Define location hierarchy mapping
+  const locationHierarchy = {
+    // Countries
+    'india': ['india', 'indian'],
+    'usa': ['usa', 'united states', 'america', 'us'],
+    'canada': ['canada', 'canadian'],
+    'uk': ['uk', 'united kingdom', 'britain', 'british'],
+    'australia': ['australia', 'australian'],
+    'germany': ['germany', 'german'],
+    'singapore': ['singapore'],
+    'uae': ['uae', 'dubai', 'abu dhabi', 'united arab emirates'],
+    
+    // Indian states and major cities
+    'tamil nadu': ['tamil nadu', 'tn', 'chennai', 'coimbatore', 'madurai', 'salem', 'tirupur', 'erode', 'vellore', 'tiruchirappalli', 'trichy'],
+    'karnataka': ['karnataka', 'bangalore', 'bengaluru', 'mysore', 'mysuru', 'mangalore', 'mangaluru', 'hubli', 'belgaum', 'dharwad'],
+    'maharashtra': ['maharashtra', 'mumbai', 'pune', 'nagpur', 'nashik', 'aurangabad', 'solapur', 'thane', 'kalyan'],
+    'delhi': ['delhi', 'new delhi', 'ncr', 'gurgaon', 'gurugram', 'noida', 'faridabad', 'ghaziabad', 'greater noida'],
+    'west bengal': ['west bengal', 'kolkata', 'calcutta', 'howrah', 'durgapur', 'siliguri'],
+    'gujarat': ['gujarat', 'ahmedabad', 'surat', 'vadodara', 'baroda', 'rajkot', 'bhavnagar', 'gandhinagar'],
+    'rajasthan': ['rajasthan', 'jaipur', 'jodhpur', 'udaipur', 'kota', 'ajmer', 'bikaner'],
+    'uttar pradesh': ['uttar pradesh', 'up', 'lucknow', 'kanpur', 'agra', 'varanasi', 'meerut', 'allahabad', 'prayagraj', 'bareilly'],
+    'andhra pradesh': ['andhra pradesh', 'ap', 'vijayawada', 'visakhapatnam', 'vizag', 'guntur', 'tirupati'],
+    'telangana': ['telangana', 'hyderabad', 'warangal', 'nizamabad', 'secunderabad'],
+    'kerala': ['kerala', 'kochi', 'cochin', 'thiruvananthapuram', 'kozhikode', 'calicut', 'kottayam', 'thrissur'],
+    'punjab': ['punjab', 'chandigarh', 'ludhiana', 'amritsar', 'jalandhar', 'patiala'],
+    'haryana': ['haryana', 'gurgaon', 'gurugram', 'faridabad', 'panipat', 'ambala', 'karnal'],
+    'odisha': ['odisha', 'orissa', 'bhubaneswar', 'cuttack', 'rourkela', 'brahmapur'],
+    'jharkhand': ['jharkhand', 'ranchi', 'jamshedpur', 'dhanbad', 'bokaro'],
+    'assam': ['assam', 'guwahati', 'dibrugarh', 'silchar', 'jorhat'],
+    'madhya pradesh': ['madhya pradesh', 'mp', 'bhopal', 'indore', 'jabalpur', 'gwalior', 'ujjain'],
+    'chhattisgarh': ['chhattisgarh', 'raipur', 'bhilai', 'bilaspur'],
+    'uttarakhand': ['uttarakhand', 'dehradun', 'haridwar', 'roorkee', 'nainital'],
+    'himachal pradesh': ['himachal pradesh', 'hp', 'shimla', 'dharamshala', 'manali'],
+    'jammu and kashmir': ['jammu and kashmir', 'j&k', 'srinagar', 'jammu'],
+    'goa': ['goa', 'panaji', 'margao', 'vasco'],
+    'bihar': ['bihar', 'patna', 'gaya', 'muzaffarpur', 'bhagalpur'],
+    'tripura': ['tripura', 'agartala'],
+    'meghalaya': ['meghalaya', 'shillong'],
+    'manipur': ['manipur', 'imphal'],
+    'nagaland': ['nagaland', 'kohima'],
+    'mizoram': ['mizoram', 'aizawl'],
+    'arunachal pradesh': ['arunachal pradesh', 'itanagar'],
+    'sikkim': ['sikkim', 'gangtok'],
+    
+    // Major cities that might be searched independently
+    'bangalore': ['bangalore', 'bengaluru', 'whitefield', 'electronic city', 'koramangala', 'indiranagar'],
+    'mumbai': ['mumbai', 'bombay', 'navi mumbai', 'thane', 'kalyan', 'bandra', 'andheri'],
+    'chennai': ['chennai', 'madras', 'tambaram', 'velachery', 'omr', 'it corridor'],
+    'hyderabad': ['hyderabad', 'secunderabad', 'hitec city', 'gachibowli', 'kondapur'],
+    'pune': ['pune', 'pimpri', 'chinchwad', 'hinjewadi', 'wakad', 'baner'],
+    'kolkata': ['kolkata', 'calcutta', 'howrah', 'salt lake', 'new town'],
+    'ahmedabad': ['ahmedabad', 'gandhinagar', 'bopal', 'sg highway'],
+    'jaipur': ['jaipur', 'pink city'],
+    'surat': ['surat', 'diamond city'],
+    'lucknow': ['lucknow', 'gomti nagar'],
+    'kanpur': ['kanpur', 'kanpur nagar'],
+    'nagpur': ['nagpur'],
+    'indore': ['indore'],
+    'thane': ['thane', 'kalyan', 'dombivli'],
+    'bhopal': ['bhopal'],
+    'visakhapatnam': ['visakhapatnam', 'vizag'],
+    'vadodara': ['vadodara', 'baroda'],
+    'ghaziabad': ['ghaziabad', 'indirapuram', 'vaishali'],
+    'ludhiana': ['ludhiana'],
+    'agra': ['agra'],
+    'nashik': ['nashik'],
+    'faridabad': ['faridabad'],
+    'meerut': ['meerut'],
+    'rajkot': ['rajkot'],
+    'varanasi': ['varanasi', 'benaras', 'kashi'],
+    'srinagar': ['srinagar'],
+    'aurangabad': ['aurangabad'],
+    'dhanbad': ['dhanbad'],
+    'amritsar': ['amritsar'],
+    'allahabad': ['allahabad', 'prayagraj'],
+    'ranchi': ['ranchi'],
+    'howrah': ['howrah'],
+    'coimbatore': ['coimbatore', 'kovai'],
+    'jabalpur': ['jabalpur'],
+    'gwalior': ['gwalior'],
+    'vijayawada': ['vijayawada', 'bezawada'],
+    'jodhpur': ['jodhpur', 'blue city'],
+    'madurai': ['madurai', 'temple city'],
+    'raipur': ['raipur'],
+    'kota': ['kota'],
+    'chandigarh': ['chandigarh', 'tricity'],
+    'guwahati': ['guwahati'],
+    'solapur': ['solapur'],
+    'hubli': ['hubli', 'hubli-dharwad', 'dharwad'],
+    'tiruchirappalli': ['tiruchirappalli', 'trichy'],
+    'bareilly': ['bareilly'],
+    'mysore': ['mysore', 'mysuru'],
+    'tiruppur': ['tiruppur'],
+    'gurgaon': ['gurgaon', 'gurugram', 'cyber city', 'udyog vihar'],
+    'noida': ['noida', 'greater noida', 'noida extension'],
+    'mangalore': ['mangalore', 'mangaluru'],
+    'salem': ['salem'],
+    'erode': ['erode'],
+    'vellore': ['vellore'],
+    'guntur': ['guntur'],
+    'bhilai': ['bhilai'],
+    'warangal': ['warangal'],
+    'firozabad': ['firozabad'],
+    'kochi': ['kochi', 'cochin', 'ernakulam'],
+    'bhavnagar': ['bhavnagar'],
+    'dehradun': ['dehradun', 'doon'],
+    'durgapur': ['durgapur'],
+    'asansol': ['asansol'],
+    'nanded': ['nanded'],
+    'kolhapur': ['kolhapur'],
+    'ajmer': ['ajmer'],
+    'jamnagar': ['jamnagar'],
+    'ujjain': ['ujjain'],
+    'sangli': ['sangli'],
+    'malegaon': ['malegaon'],
+    'jalgaon': ['jalgaon'],
+    'akola': ['akola'],
+    'latur': ['latur'],
+    'dhule': ['dhule'],
+    'ahmednagar': ['ahmednagar'],
+    'ichalkaranji': ['ichalkaranji'],
+    'chandrapur': ['chandrapur'],
+    'parbhani': ['parbhani'],
+    'jalna': ['jalna'],
+    'ambattur': ['ambattur'],
+    'tirunelveli': ['tirunelveli', 'nellai'],
+    'thanjavur': ['thanjavur', 'tanjore'],
+    'tuticorin': ['tuticorin', 'thoothukudi'],
+    'avadi': ['avadi'],
+    'dindigul': ['dindigul'],
+    'karur': ['karur'],
+    'cuddalore': ['cuddalore'],
+    'kumbakonam': ['kumbakonam'],
+    'hosur': ['hosur'],
+    'rajahmundry': ['rajahmundry', 'rajamahendravaram'],
+    'kadapa': ['kadapa', 'cuddapah'],
+    'karimnagar': ['karimnagar'],
+    'ramagundam': ['ramagundam'],
+    'khammam': ['khammam'],
+    'mahbubnagar': ['mahbubnagar'],
+    'nalgonda': ['nalgonda'],
+    'adilabad': ['adilabad'],
+    'suryapet': ['suryapet'],
+    'miryalaguda': ['miryalaguda'],
+    'jagtial': ['jagtial']
+  };
+  
+  // Find all locations that should match this search
+  let matchingLocations = [];
+  
+  // First, check if the search term is a key in our hierarchy (broader location like country/state)
+  if (locationHierarchy[location]) {
+    matchingLocations = locationHierarchy[location];
+  } else {
+    // Check if the search term appears in any hierarchy values (specific city)
+    let found = false;
+    for (const [key, values] of Object.entries(locationHierarchy)) {
+      if (values.includes(location)) {
+        // For specific city searches, only return that city and its variants
+        matchingLocations = values.filter(loc => 
+          loc === location || 
+          loc.includes(location) || 
+          location.includes(loc)
+        );
+        found = true;
+        break;
+      }
+    }
+    
+    // If no hierarchy match found, fall back to original search term
+    if (!found) {
+      matchingLocations = [location];
+    }
+  }
+  
+  // Remove duplicates
+  matchingLocations = [...new Set(matchingLocations)];
+  
+  // Build the SQL condition for multiple location matches
+  const conditions = matchingLocations.map(() => 'LOWER(u.location) LIKE ?').join(' OR ');
+  const params = matchingLocations.map(loc => `%${loc}%`);
+  
+  return {
+    condition: `(${conditions})`,
+    params: params
+  };
+};
+
 // Search job seekers (for recruiters)
 const searchJobSeekers = (req, res) => {
   const {
@@ -49,9 +245,13 @@ const searchJobSeekers = (req, res) => {
     params.push(searchTerm, searchTerm, `%${jobTitle.trim()}%`);
   }
 
+  // Enhanced location search with hierarchy
   if (location && location.trim()) {
-    query += ` AND u.location LIKE ?`;
-    params.push(`%${location.trim()}%`);
+    const locationQuery = buildLocationQuery(location);
+    if (locationQuery.condition) {
+      query += ` AND ${locationQuery.condition}`;
+      params.push(...locationQuery.params);
+    }
   }
 
   if (experience && experience.trim()) {
@@ -457,9 +657,7 @@ const getCandidateDetails = (req, res) => {
   });
 };
 
-// NEW: Get professional categories and counts
-// In userSearchController.js - Update the getProfessionalCategories function:
-
+// Get professional categories and counts
 const getProfessionalCategories = (req, res) => {
   const query = `
     SELECT 
@@ -624,6 +822,7 @@ const getProfessionalCategories = (req, res) => {
     });
   });
 };
+
 // Get search statistics (enhanced with categories)
 const getSearchStats = (req, res) => {
   const statsQuery = `
@@ -730,5 +929,5 @@ module.exports = {
   matchSkills,
   getCandidateDetails,
   getSearchStats,
-  getProfessionalCategories  // NEW export
+  getProfessionalCategories
 };
