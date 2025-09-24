@@ -24,9 +24,9 @@ const createTransporter = () => {
         port: 587,
         secure: false, // true for 465, false for other ports
         auth: {
-          user: process.env.BREVO_LOGIN || process.env.BREVO_EMAIL, // Your Brevo login email
-          pass: process.env.BREVO_API_KEY // Your Brevo API key
-        },
+  user: process.env.BREVO_LOGIN,       
+  pass: process.env.BREVO_SMTP_KEY     
+},
         tls: {
           rejectUnauthorized: false
         }
@@ -40,7 +40,7 @@ const createTransporter = () => {
   if (process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN) {
     console.log('📧 Using Mailgun transporter...');
     try {
-      return nodemailer.createTransporter({
+      return nodemailer.createTransport({
         host: 'smtp.mailgun.org',
         port: 587,
         secure: false,
@@ -60,7 +60,7 @@ const createTransporter = () => {
     console.warn('⚠️ Note: Gmail SMTP may not work on Render due to port restrictions');
     
     try {
-      return nodemailer.createTransporter({
+      return nodemailer.createTransport({
         service: 'gmail',
         host: 'smtp.gmail.com',
         port: 587,
