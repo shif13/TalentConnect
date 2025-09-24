@@ -9,19 +9,26 @@ const createTransporter = () => {
   }
 
   try {
+    // Fixed: Use createTransport instead of createTransporter
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: parseInt(process.env.SMTP_PORT) || 587,
+      secure: process.env.SMTP_SECURE === 'true' || false, // Use STARTTLS
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
       },
-      // Add security options
-      secure: false,
       tls: {
-        rejectUnauthorized: false
-      }
+        rejectUnauthorized: false,
+        minVersion: 'TLSv1.2'
+      },
+      connectionTimeout: parseInt(process.env.EMAIL_TIMEOUT) || 60000, // 60 seconds
+      socketTimeout: parseInt(process.env.EMAIL_TIMEOUT) || 60000, // 60 seconds
+      debug: process.env.NODE_ENV === 'development',
+      logger: process.env.NODE_ENV === 'development'
     });
 
+    console.log('✅ Email transporter created successfully');
     return transporter;
   } catch (error) {
     console.error('⚠️ Failed to create email transporter:', error.message);
@@ -31,7 +38,7 @@ const createTransporter = () => {
 
 const transporter = createTransporter();
 
-// Verify transporter configuration
+// Verify transporter configuration with better error handling
 const verifyEmailConfig = async () => {
   if (!transporter) {
     console.log('⚠️ Email service disabled - no credentials provided');
@@ -39,13 +46,104 @@ const verifyEmailConfig = async () => {
   }
 
   try {
+    console.log('🔍 Verifying email configuration...');
+    console.log('📧 Using host:', process.env.SMTP_HOST || 'smtp.gmail.com');
+    console.log('🔌 Using port:', parseInt(process.env.SMTP_PORT) || 587);
+    console.log('🔒 Secure mode:', process.env.SMTP_SECURE === 'true' || false);
+    
     await transporter.verify();
     console.log('✅ Email service is ready');
     return true;
   } catch (error) {
     console.error('❌ Email service error:', error.message);
+    console.error('❌ Error code:', error.code);
+    console.error('❌ Error details:', error);
+    
+    // Provide specific error guidance
+    if (error.code === 'ETIMEDOUT' || error.code === 'ECONNECTION') {
+      console.log('💡 Suggestion: SMTP connection blocked by hosting provider');
+      console.log('💡 Try using port 465 with secure: true, or use SendGrid/Mailgun');
+    } else if (error.code === 'EAUTH') {
+      console.log('💡 Suggestion: Check your Gmail App Password');
+    }
+    
     return false;
   }
+};
+
+// Alternative transporter for Render/production environments
+const createAlternativeTransporter = () => {
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    return null;
+  }
+
+  try {
+    // Fixed: Use createTransport instead of createTransporter
+    // Try port 465 with SSL
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: 465,
+      secure: true, // Use SSL
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      },
+      tls: {
+        rejectUnauthorized: false
+      },
+      connectionTimeout: parseInt(process.env.EMAIL_TIMEOUT) || 60000,
+      socketTimeout: parseInt(process.env.EMAIL_TIMEOUT) || 60000
+    });
+
+    console.log('✅ Alternative email transporter created (Port 465)');
+    return transporter;
+  } catch (error) {
+    console.error('⚠️ Failed to create alternative transporter:', error.message);
+    return null;
+  }
+};
+
+// Enhanced verification with fallback
+const verifyEmailConfigWithFallback = async () => {
+  console.log('🔍 Starting email service verification...');
+  
+  // Try primary transporter first
+  if (transporter && await testTransporter(transporter, 'Primary (Port 587/STARTTLS)')) {
+    console.log('🎉 Using primary email configuration');
+    return true;
+  }
+  
+  // Try alternative transporter
+  console.log('🔄 Trying alternative configuration...');
+  const altTransporter = createAlternativeTransporter();
+  if (altTransporter && await testTransporter(altTransporter, 'Alternative (Port 465/SSL)')) {
+    // Replace the global transporter
+    global.emailTransporter = altTransporter;
+    console.log('🎉 Using alternative email configuration');
+    return true;
+  }
+  
+  console.log('❌ All email configurations failed');
+  console.log('💡 Consider using SendGrid, Mailgun, or another email service');
+  return false;
+};
+
+// Helper function to test transporter
+const testTransporter = async (transporterToTest, label) => {
+  try {
+    console.log(`🔍 Testing ${label}...`);
+    await transporterToTest.verify();
+    console.log(`✅ ${label} successful`);
+    return true;
+  } catch (error) {
+    console.log(`❌ ${label} failed:`, error.message);
+    return false;
+  }
+};
+
+// Get the working transporter
+const getTransporter = () => {
+  return global.emailTransporter || transporter;
 };
 
 // Welcome email template for job seekers
@@ -238,9 +336,11 @@ const getRecruiterWelcomeTemplate = (userData, companyName) => {
   };
 };
 
-// Send welcome email
+// Updated send functions to use the working transporter
 const sendWelcomeEmail = async (userData, userType, companyName = null) => {
-  if (!transporter) {
+  const workingTransporter = getTransporter();
+  
+  if (!workingTransporter) {
     console.log('⚠️ Email service unavailable - skipping welcome email');
     return { success: false, error: 'Email service not configured' };
   }
@@ -267,7 +367,7 @@ const sendWelcomeEmail = async (userData, userType, companyName = null) => {
       text: emailTemplate.text
     };
     
-    const result = await transporter.sendMail(mailOptions);
+    const result = await workingTransporter.sendMail(mailOptions);
     console.log('✅ Welcome email sent successfully:', result.messageId);
     return { success: true, messageId: result.messageId };
     
@@ -277,9 +377,10 @@ const sendWelcomeEmail = async (userData, userType, companyName = null) => {
   }
 };
 
-// FIXED: Send password reset email - now accepts user object and resetToken
 const sendPasswordResetEmail = async (user, resetToken) => {
-  if (!transporter) {
+  const workingTransporter = getTransporter();
+  
+  if (!workingTransporter) {
     console.log('⚠️ Email service unavailable - skipping password reset email');
     return { success: false, error: 'Email service not configured' };
   }
@@ -373,7 +474,7 @@ const sendPasswordResetEmail = async (user, resetToken) => {
       `
     };
     
-    const result = await transporter.sendMail(mailOptions);
+    const result = await workingTransporter.sendMail(mailOptions);
     console.log('✅ Password reset email sent successfully:', result.messageId);
     return { success: true, messageId: result.messageId };
     
@@ -383,11 +484,10 @@ const sendPasswordResetEmail = async (user, resetToken) => {
   }
 };
 
-// Add this function to your existing emailService.js file
-
-// Send contact email from recruiter to candidate
 const sendContactEmail = async (candidate, emailData) => {
-  if (!transporter) {
+  const workingTransporter = getTransporter();
+  
+  if (!workingTransporter) {
     console.log('⚠️ Email service unavailable - skipping contact email');
     return { success: false, error: 'Email service not configured' };
   }
@@ -410,7 +510,7 @@ const sendContactEmail = async (candidate, emailData) => {
       replyTo: senderInfo.email || process.env.EMAIL_USER
     };
     
-    const result = await transporter.sendMail(mailOptions);
+    const result = await workingTransporter.sendMail(mailOptions);
     console.log('✅ Contact email sent successfully:', result.messageId);
     return { success: true, messageId: result.messageId };
     
@@ -594,11 +694,10 @@ const getContactEmailTemplate = (candidate, subject, message, senderInfo) => {
   };
 };
 
-
 module.exports = {
-  verifyEmailConfig,
+  verifyEmailConfig: verifyEmailConfigWithFallback,
   sendWelcomeEmail,
   sendPasswordResetEmail,
-  transporter,
-  sendContactEmail
+  sendContactEmail,
+  transporter: getTransporter
 };
