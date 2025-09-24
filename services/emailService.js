@@ -4,11 +4,11 @@ const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const createTransporter = () => {
-  // Try Brevo first (recommended for production)
+
   if (process.env.BREVO_API_KEY) {
     console.log('🚀 Using Brevo transporter...');
     try {
-      return nodemailer.createTransporter({
+      return nodemailer.createTransport({
         host: 'smtp-relay.brevo.com',
         port: 587,
         secure: false, // true for 465, false for other ports
