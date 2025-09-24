@@ -9,10 +9,11 @@ const createTransporter = () => {
   }
 
   try {
-    const transporter = nodemailer.createTransporter({
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false, // Use STARTTLS
+    // Fixed: Use createTransport instead of createTransporter
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: parseInt(process.env.SMTP_PORT) || 587,
+      secure: process.env.SMTP_SECURE === 'true' || false, // Use STARTTLS
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
@@ -21,12 +22,13 @@ const createTransporter = () => {
         rejectUnauthorized: false,
         minVersion: 'TLSv1.2'
       },
-      connectionTimeout: 60000, // 60 seconds
-      socketTimeout: 60000, // 60 seconds
+      connectionTimeout: parseInt(process.env.EMAIL_TIMEOUT) || 60000, // 60 seconds
+      socketTimeout: parseInt(process.env.EMAIL_TIMEOUT) || 60000, // 60 seconds
       debug: process.env.NODE_ENV === 'development',
       logger: process.env.NODE_ENV === 'development'
     });
 
+    console.log('✅ Email transporter created successfully');
     return transporter;
   } catch (error) {
     console.error('⚠️ Failed to create email transporter:', error.message);
@@ -45,6 +47,10 @@ const verifyEmailConfig = async () => {
 
   try {
     console.log('🔍 Verifying email configuration...');
+    console.log('📧 Using host:', process.env.SMTP_HOST || 'smtp.gmail.com');
+    console.log('🔌 Using port:', parseInt(process.env.SMTP_PORT) || 587);
+    console.log('🔒 Secure mode:', process.env.SMTP_SECURE === 'true' || false);
+    
     await transporter.verify();
     console.log('✅ Email service is ready');
     return true;
@@ -72,9 +78,10 @@ const createAlternativeTransporter = () => {
   }
 
   try {
+    // Fixed: Use createTransport instead of createTransporter
     // Try port 465 with SSL
-    const transporter = nodemailer.createTransporter({
-      host: 'smtp.gmail.com',
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
       port: 465,
       secure: true, // Use SSL
       auth: {
@@ -84,10 +91,11 @@ const createAlternativeTransporter = () => {
       tls: {
         rejectUnauthorized: false
       },
-      connectionTimeout: 60000,
-      socketTimeout: 60000
+      connectionTimeout: parseInt(process.env.EMAIL_TIMEOUT) || 60000,
+      socketTimeout: parseInt(process.env.EMAIL_TIMEOUT) || 60000
     });
 
+    console.log('✅ Alternative email transporter created (Port 465)');
     return transporter;
   } catch (error) {
     console.error('⚠️ Failed to create alternative transporter:', error.message);
@@ -100,20 +108,23 @@ const verifyEmailConfigWithFallback = async () => {
   console.log('🔍 Starting email service verification...');
   
   // Try primary transporter first
-  if (transporter && await testTransporter(transporter, 'Primary (Port 587)')) {
+  if (transporter && await testTransporter(transporter, 'Primary (Port 587/STARTTLS)')) {
+    console.log('🎉 Using primary email configuration');
     return true;
   }
   
   // Try alternative transporter
   console.log('🔄 Trying alternative configuration...');
   const altTransporter = createAlternativeTransporter();
-  if (altTransporter && await testTransporter(altTransporter, 'Alternative (Port 465)')) {
+  if (altTransporter && await testTransporter(altTransporter, 'Alternative (Port 465/SSL)')) {
     // Replace the global transporter
     global.emailTransporter = altTransporter;
+    console.log('🎉 Using alternative email configuration');
     return true;
   }
   
   console.log('❌ All email configurations failed');
+  console.log('💡 Consider using SendGrid, Mailgun, or another email service');
   return false;
 };
 
@@ -135,7 +146,7 @@ const getTransporter = () => {
   return global.emailTransporter || transporter;
 };
 
-// Welcome email template for job seekers (unchanged)
+// Welcome email template for job seekers
 const getJobSeekerWelcomeTemplate = (userData) => {
   return {
     subject: 'Welcome to TalentConnect! Your Account is Ready',
@@ -235,7 +246,7 @@ const getJobSeekerWelcomeTemplate = (userData) => {
   };
 };
 
-// Welcome email template for recruiters (unchanged)
+// Welcome email template for recruiters
 const getRecruiterWelcomeTemplate = (userData, companyName) => {
   return {
     subject: 'Welcome to TalentConnect! Start Finding Great Talent',
@@ -509,7 +520,7 @@ const sendContactEmail = async (candidate, emailData) => {
   }
 };
 
-// Contact email template (unchanged)
+// Contact email template
 const getContactEmailTemplate = (candidate, subject, message, senderInfo) => {
   const candidateName = `${candidate.firstName} ${candidate.lastName}`;
   
