@@ -17,8 +17,8 @@ const contactRoutes = require("./routes/contactRoutes");
 const registerRoutes = require("./routes/registerRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 
-//review routes
- const reviewRoutes = require('./routes/reviewRoutes');
+// Review routes
+const reviewRoutes = require("./routes/reviewRoutes");
 
 // Controllers for table creation
 const { createContactLogsTable } = require("./controllers/contactController");
@@ -54,9 +54,9 @@ app.use("/api/contact", contactRoutes);
 app.use("/api", registerRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 
-//review routes
-  app.use('/api/reviews', reviewRoutes);
-  
+// Review routes
+app.use('/api/reviews', reviewRoutes);
+
 // 404 handler
 app.use("*", (req, res) => {
   res.status(404).json({
@@ -90,7 +90,7 @@ const startServer = async () => {
     console.log("✅ Email service initialized");
 
     app.listen(PORT, () => {
-      console.log(`🚀 Server running at http://localhost:${PORT}`);
+      console.log(`🚀 Server running on port ${PORT}`);
     });
   } catch (error) {
     console.error("❌ Failed to start server:", error.message);
