@@ -11,15 +11,20 @@ const createTransporter = () => {
   try {
     const transporter = nodemailer.createTransport({
       service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false, // false for port 587, true for port 465
       auth: {
         user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
+        pass: process.env.EMAIL_PASS // Should be Gmail App Password in production
       },
-      // Add security options
-      secure: false,
       tls: {
         rejectUnauthorized: false
-      }
+      },
+      // Add connection timeout and retry options for production
+      connectionTimeout: 60000, // 60 seconds
+      greetingTimeout: 30000, // 30 seconds
+      socketTimeout: 60000, // 60 seconds
     });
 
     return transporter;
@@ -31,7 +36,7 @@ const createTransporter = () => {
 
 const transporter = createTransporter();
 
-// Verify transporter configuration
+// Enhanced verification with better error reporting
 const verifyEmailConfig = async () => {
   if (!transporter) {
     console.log('⚠️ Email service disabled - no credentials provided');
@@ -39,13 +44,82 @@ const verifyEmailConfig = async () => {
   }
 
   try {
+    console.log('🔄 Verifying email configuration...');
     await transporter.verify();
     console.log('✅ Email service is ready');
     return true;
   } catch (error) {
-    console.error('❌ Email service error:', error.message);
+    console.error('❌ Email service verification failed:');
+    console.error('Error code:', error.code);
+    console.error('Error message:', error.message);
+    
+    // Provide specific troubleshooting hints
+    if (error.code === 'EAUTH') {
+      console.error('💡 Authentication failed - check if you\'re using Gmail App Password');
+    } else if (error.code === 'ECONNECTION') {
+      console.error('💡 Connection failed - check network/firewall settings');
+    } else if (error.code === 'ETIMEDOUT') {
+      console.error('💡 Connection timeout - try different port or host settings');
+    }
+    
     return false;
   }
+};
+
+// Alternative transporter for different providers (fallback option)
+const createAlternativeTransporter = () => {
+  // You can configure this for other email providers like SendGrid, Mailgun, etc.
+  if (process.env.SENDGRID_API_KEY) {
+    return nodemailer.createTransporter({
+      service: 'SendGrid',
+      auth: {
+        user: 'apikey',
+        pass: process.env.SENDGRID_API_KEY
+      }
+    });
+  }
+  
+  // Or for custom SMTP
+  if (process.env.SMTP_HOST) {
+    return nodemailer.createTransporter({
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT || 587,
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS
+      }
+    });
+  }
+  
+  return null;
+};
+
+// Enhanced email sending with retry logic
+const sendEmailWithRetry = async (mailOptions, maxRetries = 3) => {
+  let lastError;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`📧 Sending email (attempt ${attempt}/${maxRetries})...`);
+      
+      const result = await transporter.sendMail(mailOptions);
+      console.log('✅ Email sent successfully:', result.messageId);
+      return { success: true, messageId: result.messageId };
+      
+    } catch (error) {
+      lastError = error;
+      console.error(`❌ Email send attempt ${attempt} failed:`, error.message);
+      
+      if (attempt < maxRetries) {
+        const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
+        console.log(`⏳ Retrying in ${delay/1000} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  
+  return { success: false, error: lastError.message };
 };
 
 // Welcome email template for job seekers
@@ -238,7 +312,7 @@ const getRecruiterWelcomeTemplate = (userData, companyName) => {
   };
 };
 
-// Send welcome email
+// Enhanced send welcome email with retry logic
 const sendWelcomeEmail = async (userData, userType, companyName = null) => {
   if (!transporter) {
     console.log('⚠️ Email service unavailable - skipping welcome email');
@@ -267,9 +341,7 @@ const sendWelcomeEmail = async (userData, userType, companyName = null) => {
       text: emailTemplate.text
     };
     
-    const result = await transporter.sendMail(mailOptions);
-    console.log('✅ Welcome email sent successfully:', result.messageId);
-    return { success: true, messageId: result.messageId };
+    return await sendEmailWithRetry(mailOptions);
     
   } catch (error) {
     console.error('❌ Failed to send welcome email:', error.message);
@@ -277,7 +349,7 @@ const sendWelcomeEmail = async (userData, userType, companyName = null) => {
   }
 };
 
-// FIXED: Send password reset email - now accepts user object and resetToken
+// Enhanced send password reset email with retry logic
 const sendPasswordResetEmail = async (user, resetToken) => {
   if (!transporter) {
     console.log('⚠️ Email service unavailable - skipping password reset email');
@@ -373,9 +445,7 @@ const sendPasswordResetEmail = async (user, resetToken) => {
       `
     };
     
-    const result = await transporter.sendMail(mailOptions);
-    console.log('✅ Password reset email sent successfully:', result.messageId);
-    return { success: true, messageId: result.messageId };
+    return await sendEmailWithRetry(mailOptions);
     
   } catch (error) {
     console.error('❌ Failed to send password reset email:', error.message);
@@ -383,9 +453,7 @@ const sendPasswordResetEmail = async (user, resetToken) => {
   }
 };
 
-// Add this function to your existing emailService.js file
-
-// Send contact email from recruiter to candidate
+// Enhanced send contact email with retry logic
 const sendContactEmail = async (candidate, emailData) => {
   if (!transporter) {
     console.log('⚠️ Email service unavailable - skipping contact email');
@@ -410,9 +478,7 @@ const sendContactEmail = async (candidate, emailData) => {
       replyTo: senderInfo.email || process.env.EMAIL_USER
     };
     
-    const result = await transporter.sendMail(mailOptions);
-    console.log('✅ Contact email sent successfully:', result.messageId);
-    return { success: true, messageId: result.messageId };
+    return await sendEmailWithRetry(mailOptions);
     
   } catch (error) {
     console.error('❌ Failed to send contact email:', error.message);
@@ -420,7 +486,7 @@ const sendContactEmail = async (candidate, emailData) => {
   }
 };
 
-// Contact email template
+// Contact email template (same as your original)
 const getContactEmailTemplate = (candidate, subject, message, senderInfo) => {
   const candidateName = `${candidate.firstName} ${candidate.lastName}`;
   
@@ -594,11 +660,11 @@ const getContactEmailTemplate = (candidate, subject, message, senderInfo) => {
   };
 };
 
-
 module.exports = {
   verifyEmailConfig,
   sendWelcomeEmail,
   sendPasswordResetEmail,
+  sendContactEmail,
   transporter,
-  sendContactEmail
+  createAlternativeTransporter
 };
