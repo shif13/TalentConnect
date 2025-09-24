@@ -1,7 +1,18 @@
-// services/emailService.js - Updated for Brevo (Sendinblue)
+// services/emailService.js - Updated for Brevo API
 
 const nodemailer = require('nodemailer');
+const SibApiV3Sdk = require('@sendinblue/client');
 require('dotenv').config();
+
+const createBrevoClient = () => {
+  if (process.env.BREVO_API_KEY) {
+    const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
+    const apiKey = apiInstance.authentications['apiKey'];
+    apiKey.apiKey = process.env.BREVO_API_KEY;
+    return apiInstance;
+  }
+  return null;
+};
 
 const createTransporter = () => {
 
@@ -27,7 +38,7 @@ const createTransporter = () => {
 
   // Try Mailgun as fallback
   if (process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN) {
-    console.log('🔧 Using Mailgun transporter...');
+    console.log('📧 Using Mailgun transporter...');
     try {
       return nodemailer.createTransporter({
         host: 'smtp.mailgun.org',
@@ -45,7 +56,7 @@ const createTransporter = () => {
 
   // Gmail fallback (for local development only)
   if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-    console.log('🔧 Using Gmail transporter (local development only)...');
+    console.log('📧 Using Gmail transporter (local development only)...');
     console.warn('⚠️ Note: Gmail SMTP may not work on Render due to port restrictions');
     
     try {
@@ -121,7 +132,7 @@ const verifyEmailConfig = async () => {
     
     // Show setup instructions based on environment
     if (process.env.NODE_ENV === 'production') {
-      console.log('🔧 PRODUCTION SETUP REQUIRED:');
+      console.log('📧 PRODUCTION SETUP REQUIRED:');
       console.log('Option 1 - Brevo (RECOMMENDED - 300 emails/day free):');
       console.log('1. Sign up at https://brevo.com');
       console.log('2. Go to Settings → SMTP & API → SMTP');
@@ -134,7 +145,7 @@ const verifyEmailConfig = async () => {
       console.log('   MAILGUN_API_KEY=key-your-api-key');
       console.log('   MAILGUN_DOMAIN=your-domain.mailgun.org');
     } else {
-      console.log('🔧 DEVELOPMENT SETUP:');
+      console.log('📧 DEVELOPMENT SETUP:');
       console.log('Add to your .env file:');
       console.log('BREVO_LOGIN=your-login-email@example.com');
       console.log('BREVO_API_KEY=your-api-key');
@@ -181,8 +192,46 @@ const verifyEmailConfig = async () => {
   }
 };
 
+const sendEmailWithBrevoAPI = async (emailData) => {
+  const brevoClient = createBrevoClient();
+  if (!brevoClient) {
+    return { success: false, error: 'Brevo API not configured' };
+  }
+  try {
+    const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+    
+    sendSmtpEmail.subject = emailData.subject;
+    sendSmtpEmail.htmlContent = emailData.html;
+    sendSmtpEmail.textContent = emailData.text;
+    sendSmtpEmail.sender = { 
+      name: "TalentConnect", 
+      email: process.env.BREVO_LOGIN 
+    };
+    sendSmtpEmail.to = [{ email: emailData.to }];
+    
+    const result = await brevoClient.sendTransacEmail(sendSmtpEmail);
+    console.log('Email sent successfully via Brevo API:', result.response.statusCode);
+    return { success: true, messageId: result.response.headers['x-message-id'] };
+    
+  } catch (error) {
+    console.error('Brevo API error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 // Enhanced email sending with retry logic
 const sendEmailWithRetry = async (mailOptions, maxRetries = 3) => {
+  // Try Brevo API first if available
+  if (process.env.BREVO_API_KEY) {
+    console.log('📧 Attempting to send via Brevo API...');
+    const result = await sendEmailWithBrevoAPI(mailOptions);
+    if (result.success) {
+      return result;
+    } else {
+      console.warn('⚠️ Brevo API failed, falling back to SMTP...');
+    }
+  }
+
   if (!transporter) {
     const error = 'Email service not configured';
     console.error('❌', error);
@@ -541,7 +590,7 @@ const sendPasswordResetEmail = async (user, resetToken) => {
               <p>Click the button below to create a new password:</p>
               
               <div style="text-align: center;">
-                <a href="${resetUrl}" class="button">🔐 Reset My Password</a>
+                <a href="${resetUrl}" class="button">🔓 Reset My Password</a>
               </div>
               
               <p>If the button doesn't work, copy and paste this link into your browser:</p>
