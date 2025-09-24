@@ -1,17 +1,38 @@
-// services/emailService.js - Mailgun implementation for Render
+// services/emailService.js - Updated for Brevo (Sendinblue)
 
 const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const createTransporter = () => {
-  // Try Mailgun first (works great with Render)
+  // Try Brevo first (recommended for production)
+  if (process.env.BREVO_API_KEY) {
+    console.log('🚀 Using Brevo transporter...');
+    try {
+      return nodemailer.createTransporter({
+        host: 'smtp-relay.brevo.com',
+        port: 587,
+        secure: false, // true for 465, false for other ports
+        auth: {
+          user: process.env.BREVO_LOGIN || process.env.BREVO_EMAIL, // Your Brevo login email
+          pass: process.env.BREVO_API_KEY // Your Brevo API key
+        },
+        tls: {
+          rejectUnauthorized: false
+        }
+      });
+    } catch (error) {
+      console.error('⚠️ Failed to create Brevo transporter:', error.message);
+    }
+  }
+
+  // Try Mailgun as fallback
   if (process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN) {
-    console.log('🚀 Using Mailgun transporter...');
+    console.log('🔧 Using Mailgun transporter...');
     try {
       return nodemailer.createTransporter({
         host: 'smtp.mailgun.org',
         port: 587,
-        secure: false, // true for 465, false for other ports
+        secure: false,
         auth: {
           user: `postmaster@${process.env.MAILGUN_DOMAIN}`,
           pass: process.env.MAILGUN_API_KEY
@@ -22,7 +43,7 @@ const createTransporter = () => {
     }
   }
 
-  // Fallback to Gmail (for local development only)
+  // Gmail fallback (for local development only)
   if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
     console.log('🔧 Using Gmail transporter (local development only)...');
     console.warn('⚠️ Note: Gmail SMTP may not work on Render due to port restrictions');
@@ -50,10 +71,14 @@ const createTransporter = () => {
   }
 
   console.warn('⚠️ No email service configured');
-  console.log('💡 To set up Mailgun:');
-  console.log('1. Sign up at https://mailgun.com');
-  console.log('2. Get your API key and domain');
-  console.log('3. Set MAILGUN_API_KEY and MAILGUN_DOMAIN environment variables');
+  console.log('💡 To set up Brevo (recommended):');
+  console.log('1. Sign up at https://brevo.com (300 emails/day free forever)');
+  console.log('2. Go to Settings → SMTP & API → SMTP');
+  console.log('3. Get your login email and API key');
+  console.log('4. Set these environment variables:');
+  console.log('   BREVO_LOGIN=your-login-email@example.com');
+  console.log('   BREVO_API_KEY=your-api-key');
+  console.log('   BREVO_FROM_EMAIL=TalentConnect <noreply@yourdomain.com>');
   
   return null;
 };
@@ -62,7 +87,14 @@ const transporter = createTransporter();
 
 // Get the FROM email address
 const getFromEmail = () => {
-  if (process.env.MAILGUN_FROM_EMAIL) {
+  if (process.env.BREVO_FROM_EMAIL) {
+    return process.env.BREVO_FROM_EMAIL;
+  } else if (process.env.BREVO_LOGIN) {
+    return {
+      name: 'TalentConnect',
+      address: process.env.BREVO_LOGIN
+    };
+  } else if (process.env.MAILGUN_FROM_EMAIL) {
     return process.env.MAILGUN_FROM_EMAIL;
   } else if (process.env.MAILGUN_DOMAIN) {
     return {
@@ -90,16 +122,23 @@ const verifyEmailConfig = async () => {
     // Show setup instructions based on environment
     if (process.env.NODE_ENV === 'production') {
       console.log('🔧 PRODUCTION SETUP REQUIRED:');
-      console.log('1. Sign up for Mailgun: https://mailgun.com');
-      console.log('2. Add environment variables in Render:');
+      console.log('Option 1 - Brevo (RECOMMENDED - 300 emails/day free):');
+      console.log('1. Sign up at https://brevo.com');
+      console.log('2. Go to Settings → SMTP & API → SMTP');
+      console.log('3. Add environment variables in Render:');
+      console.log('   BREVO_LOGIN=your-login-email@example.com');
+      console.log('   BREVO_API_KEY=your-api-key');
+      console.log('   BREVO_FROM_EMAIL=TalentConnect <noreply@yourdomain.com>');
+      console.log('');
+      console.log('Option 2 - Mailgun:');
       console.log('   MAILGUN_API_KEY=key-your-api-key');
       console.log('   MAILGUN_DOMAIN=your-domain.mailgun.org');
-      console.log('   MAILGUN_FROM_EMAIL=TalentConnect <noreply@your-domain.mailgun.org>');
     } else {
       console.log('🔧 DEVELOPMENT SETUP:');
       console.log('Add to your .env file:');
-      console.log('EMAIL_USER=your@gmail.com');
-      console.log('EMAIL_PASS=your-app-password');
+      console.log('BREVO_LOGIN=your-login-email@example.com');
+      console.log('BREVO_API_KEY=your-api-key');
+      console.log('BREVO_FROM_EMAIL=TalentConnect <noreply@yourdomain.com>');
     }
     
     return false;
@@ -111,7 +150,10 @@ const verifyEmailConfig = async () => {
     console.log('✅ Email service is ready');
     
     // Log which service is being used
-    if (process.env.MAILGUN_API_KEY) {
+    if (process.env.BREVO_API_KEY) {
+      console.log(`📧 Using Brevo with login: ${process.env.BREVO_LOGIN}`);
+      console.log('📊 Daily limit: 300 emails (Brevo free plan)');
+    } else if (process.env.MAILGUN_API_KEY) {
       console.log(`📧 Using Mailgun domain: ${process.env.MAILGUN_DOMAIN}`);
     } else {
       console.log('📧 Using Gmail SMTP');
@@ -125,10 +167,12 @@ const verifyEmailConfig = async () => {
     
     // Provide specific troubleshooting
     if (error.code === 'ETIMEDOUT') {
-      console.error('💡 Connection timeout - likely Render blocking SMTP ports');
-      console.error('💡 SOLUTION: Switch to Mailgun which works with Render');
+      console.error('💡 Connection timeout - check your network/firewall');
     } else if (error.code === 'EAUTH') {
       console.error('💡 Authentication failed - check your API key/credentials');
+      if (process.env.BREVO_API_KEY) {
+        console.error('💡 For Brevo: Make sure you\'re using the SMTP API key, not the API v3 key');
+      }
     } else if (error.code === 'ENOTFOUND') {
       console.error('💡 Host not found - check your SMTP host configuration');
     }
@@ -176,6 +220,12 @@ const sendEmailWithRetry = async (mailOptions, maxRetries = 3) => {
       // Don't retry for authentication errors
       if (error.code === 'EAUTH' || error.responseCode === 401) {
         console.error('🚫 Authentication error - not retrying');
+        break;
+      }
+      
+      // Don't retry for rate limiting (Brevo specific)
+      if (error.responseCode === 429) {
+        console.error('🚫 Rate limit exceeded - not retrying');
         break;
       }
       
